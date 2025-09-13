@@ -1,0 +1,196 @@
+import threading
+import ttkbootstrap as ttkb
+from ttkbootstrap.constants import *
+from tkinter import messagebox, filedialog
+from datetime import datetime
+import sqlite3
+import configparser
+import os
+import time
+from aa_api_module import AA_API_Connect  # Güncellenmiş API sınıfı
+
+ayarlar_path = "settings.ini"
+config = configparser.ConfigParser()
+with open(ayarlar_path, "r", encoding="utf-8") as f:
+    config.read_file(f)
+
+text_klasoru = config.get("DEFAULT", "text", fallback="C:/AA/xml")
+picture_klasoru = config.get("DEFAULT", "picture", fallback="E:/AA")
+graphic_klasoru = config.get("DEFAULT", "graphic", fallback="E:/AA_GRAFIK")
+
+yenileme_suresi = 30
+kayit_klasoru = "C:/AA_DATA"
+silme_modu = "hdd"
+silme_degeri = 70
+silme_gun = 10
+coklu_indirme = 5
+
+#  Gerçek zamanlı ilerleme çubuğu için
+def ilerleme_guncelle(current, total):
+    oran = int((current / total) * 100)
+    progress_bar["value"] = oran
+    pencere.update()
+
+def tema_degistir(mod):
+    if mod == "light":
+        pencere.style.theme_use("flatly")
+    elif mod == "dark":
+        pencere.style.theme_use("darkly")
+
+def verileri_goster():
+    try:
+        conn = sqlite3.connect('veritabani.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, title, date FROM text ORDER BY date DESC LIMIT 40")
+        veriler = cursor.fetchall()
+        conn.close()
+        for row in tablo.get_children():
+            tablo.delete(row)
+        for veri in veriler:
+            tablo.insert("", "end", values=veri)
+        log_label.config(text=" Henüz veri yüklenmedi.")
+    except Exception as e:
+        log_label.config(text=f" Gösterim hatası: {str(e)}")
+        messagebox.showerror("Hata", f"Veriler gösterilirken bir hata oluştu:\n{str(e)}")
+
+def arka_planda_veri_indir(zaman):
+    try:
+        log_label.config(text=f" API çağrılıyor... ({zaman})")
+        progress_bar["value"] = 0
+        pencere.update()
+
+        AA_API_Connect(zaman, progress_callback=ilerleme_guncelle)
+
+        log_label.config(text="Haberler indirildi, tabloya aktarılıyor...")
+        verileri_goster()
+
+        log_label.config(text=" Tüm işlem başarıyla tamamlandı.")
+        pencere.after(2000, lambda: progress_bar.config(value=0))
+        pencere.after(2000, lambda: log_label.config(text="Durum:  Haber İndirme İşlemi Tamamlandı..."))
+        messagebox.showinfo("Başarılı", "Haberler başarıyla indirildi ve gösterildi!")
+    except Exception as e:
+        log_label.config(text=f" Hata: {str(e)}")
+        progress_bar["value"] = 0
+        pencere.update()
+        messagebox.showerror("Hata", f"İşlem sırasında hata oluştu:\n{str(e)}")
+
+def verileri_indir():
+    log_label.config(text="İşlem başlatılıyor...")
+    progress_bar["value"] = 0
+    pencere.update()
+    zaman = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    threading.Thread(target=arka_planda_veri_indir, args=(zaman,), daemon=True).start()
+
+# Ana pencere
+pencere = ttkb.Window(themename="flatly")
+pencere.title("AA API Haber Arayüzü")
+pencere.geometry("1000x700")
+
+# Üst çerçeve: başlık ve tema
+ust_cerceve = ttkb.Frame(pencere)
+ust_cerceve.pack(pady=10, fill="x")
+
+tema_frame = ttkb.Frame(ust_cerceve)
+tema_frame.pack(side="right", padx=10)
+ttkb.Button(tema_frame, text="☀️ Light", width=10, command=lambda: tema_degistir("light"), bootstyle=SECONDARY).pack(side="left", padx=2)
+ttkb.Button(tema_frame, text="🌙 Dark", width=10, command=lambda: tema_degistir("dark"), bootstyle=DARK).pack(side="left", padx=2)
+
+etiket = ttkb.Label(ust_cerceve, text="📰 AA API Haber Sistemi", font=("Segoe UI", 22, "bold"), foreground="#1A237E")
+etiket.pack(side="top", pady=10)
+
+# Butonlar
+orta_buton_cerceve = ttkb.Frame(pencere)
+orta_buton_cerceve.pack(pady=5)
+ttkb.Button(orta_buton_cerceve, text=" Verileri İndir", command=verileri_indir, bootstyle=SUCCESS, width=20).pack(side="left", padx=10)
+ttkb.Button(orta_buton_cerceve, text=" Haberleri Göster", command=verileri_goster, bootstyle=INFO, width=20).pack(side="left", padx=10)
+
+# Ayar çerçevesi
+ayar_frame = ttkb.Frame(pencere)
+ayar_frame.pack(pady=5, padx=10, fill="x")
+
+ttkb.Label(ayar_frame, text="Çoklu İndirme:").pack(side="left", padx=5)
+coklu_indirme_spin = ttkb.Spinbox(ayar_frame, from_=1, to=20, width=5)
+coklu_indirme_spin.insert(0, str(coklu_indirme))
+coklu_indirme_spin.pack(side="left", padx=5)
+
+ttkb.Label(ayar_frame, text="Yenileme Süresi (sn):").pack(side="left", padx=5)
+sure_spin = ttkb.Spinbox(ayar_frame, from_=5, to=3600, width=5)
+sure_spin.insert(0, str(yenileme_suresi))
+sure_spin.pack(side="left", padx=5)
+
+# Klasör seçim
+def klasor_sec(entry_widget):
+    yol = filedialog.askdirectory()
+    if yol:
+        entry_widget.delete(0, "end")
+        entry_widget.insert(0, yol)
+
+for label, var, path in [
+    ("Text:", "text_entry", text_klasoru),
+    ("Picture:", "picture_entry", picture_klasoru),
+    ("Graphic:", "graphic_entry", graphic_klasoru)
+]:
+    frame = ttkb.Frame(pencere)
+    frame.pack(pady=2, padx=20, fill="x")
+    ttkb.Label(frame, text=label).pack(side="left", padx=5)
+    entry = ttkb.Entry(frame, width=80)
+    entry.insert(0, path)
+    entry.pack(side="left", padx=5)
+    ttkb.Button(frame, text="Gözat", command=lambda e=entry: klasor_sec(e), bootstyle=SECONDARY).pack(side="left")
+    globals()[var] = entry
+
+# Silme ayarları
+silme_frame = ttkb.Frame(pencere)
+silme_frame.pack(pady=10)
+ttkb.Label(silme_frame, text="Silme Modu:").pack(side="left", padx=5)
+silme_modu_var = ttkb.StringVar(value=silme_modu)
+ttkb.Radiobutton(silme_frame, text="HDD %", variable=silme_modu_var, value="hdd").pack(side="left")
+silme_hdd_spin = ttkb.Spinbox(silme_frame, from_=1, to=100, width=5)
+silme_hdd_spin.insert(0, str(silme_degeri))
+silme_hdd_spin.pack(side="left", padx=2)
+ttkb.Radiobutton(silme_frame, text="Gün", variable=silme_modu_var, value="gun").pack(side="left")
+silme_gun_spin = ttkb.Spinbox(silme_frame, from_=1, to=100, width=5)
+silme_gun_spin.insert(0, str(silme_gun))
+silme_gun_spin.pack(side="left", padx=2)
+
+#  Ayarları Uygula
+def ayarlari_kaydet():
+    global yenileme_suresi, kayit_klasoru, silme_modu, silme_degeri, silme_gun, coklu_indirme
+    yenileme_suresi = int(sure_spin.get())
+    silme_modu = silme_modu_var.get()
+    silme_degeri = int(silme_hdd_spin.get())
+    silme_gun = int(silme_gun_spin.get())
+    coklu_indirme = int(coklu_indirme_spin.get())
+
+    config.set("DEFAULT", "text", text_entry.get())
+    config.set("DEFAULT", "picture", picture_entry.get())
+    config.set("DEFAULT", "graphic", graphic_entry.get())
+    with open(ayarlar_path, "w", encoding="utf-8") as configfile:
+        config.write(configfile)
+
+    messagebox.showinfo("Ayarlar", "Ayarlar kaydedildi")
+
+ttkb.Button(silme_frame, text="Uygula", command=ayarlari_kaydet, bootstyle=SUCCESS).pack(side="left", padx=10)
+
+# Alt alan
+alt_cerceve = ttkb.Frame(pencere)
+alt_cerceve.pack(pady=10, fill="both", expand=True)
+
+progress_bar = ttkb.Progressbar(alt_cerceve, orient="horizontal", length=600, mode="determinate")
+progress_bar.pack(pady=5)
+log_label = ttkb.Label(alt_cerceve, text="Durum: Bekleniyor...", font=("Arial", 10), foreground="gray")
+log_label.pack()
+tablo = ttkb.Treeview(alt_cerceve, columns=("ID", "Başlık", "Tarih"), show="headings", height=15)
+tablo.heading("ID", text="ID")
+tablo.heading("Başlık", text="Başlık")
+tablo.heading("Tarih", text="Tarih")
+tablo.column("ID", anchor="center", width=150)
+tablo.column("Başlık", anchor="w", width=500)
+tablo.column("Tarih", anchor="center", width=200)
+tablo.pack(padx=10, pady=10, fill="both", expand=True)
+scroll_y = ttkb.Scrollbar(alt_cerceve, orient="vertical", command=tablo.yview)
+tablo.configure(yscrollcommand=scroll_y.set)
+scroll_y.pack(side="right", fill="y")
+
+verileri_goster()
+pencere.mainloop()
