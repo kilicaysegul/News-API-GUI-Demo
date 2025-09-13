@@ -22,6 +22,13 @@ This project is a **Python-based GUI application** developed during my internshi
 - **SQLite**
 - **ConfigParser**
 
+
+  ##Screenshots
+  **(https://drive.google.com/file/d/1UoEe-Iohf4fNNveEBG_qs9-h_Ecraust/view?usp=sharing)
+  **(https://drive.google.com/file/d/10sJ_ycr0n182lMGXbaXW-SgZ0h9arSMK/view?usp=sharing)
+  **(https://drive.google.com/file/d/1Tael1XpnSWT8FQfnV_G7GFN8sfpzsO-B/view?usp=sharing)
+  **(https://drive.google.com/file/d/1BwxdX_c_eft7fT2EEidVC4iCCMLe4P29/view?usp=sharing)
+
 ---
 
 ## 📂 Repository Structure
